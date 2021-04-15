@@ -349,22 +349,24 @@ class Reformer(tf.keras.Model):
 
     def call(self, x):
         x = tf.concat([x, x], axis = -1)# x1, x2 하려고..
-        x = self.model_layers(x)
-        return tf.stack(tf.reduce_sum(tf.split(x, 2, axis=-1), axis=0))
+        output = self.model_layers(x)
+        output= tf.split(output, 2, axis=-1)
+        output= tf.stack(tf.reduce_sum(output, axis=0))
+        return output
 
 class Reformer_Model(tf.keras.Model):
     def __init__(self, vocab_size, emb_size, depth, max_seq_len, heads , bucket_size , num_hash , ff_chunks ,  causal = False):
         super().__init__()
-        self.token_emb = Embedding(vocab_size, emb_size)
-        self.pos_emb = Embedding(max_seq_len, emb_size)
+        self.token_emb = Embedding(vocab_size, emb_size) #트랜스포머 입력이 원래이럼.
+        self.pos_emb = Embedding(max_seq_len, emb_size)  #axial position encoding 해야하지만. 그냥임베딩 사용. 미구현..
         self.reformer = Reformer(emb_size, depth, max_seq_len, heads = heads, bucket_size = bucket_size, num_hash = num_hash, ff_chunks = ff_chunks,  causal = causal)
         self.linear = Dense(vocab_size)
 
     def call(self, inputs):
         #axial positional embedding은 구현 못했습니다 ㅜㅜ
         #간이 임베딩 사용.
-        inputs = self.token_emb(inputs) + self.pos_emb(tf.range(inputs.shape[1]))
-        r_out = self.reformer(inputs) #batch, seq , dim
-        output= self.linear(r_out)
+        inputs = self.token_emb(inputs) + self.pos_emb(tf.range(inputs.shape[1]))# 원래는 axial position 구현해서 더해줘야함.
+        r_out = self.reformer(inputs) #batch, seq , dim (dim = embedding dim)
+        output= self.linear(r_out) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
         return output #batch, seq, vacab 
     
