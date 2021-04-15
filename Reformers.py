@@ -349,9 +349,9 @@ class Reformer(tf.keras.Model):
 
     def call(self, x):
         x = tf.concat([x, x], axis = -1)# x1, x2 하려고..
-        output = self.model_layers(x)
-        output= tf.split(output, 2, axis=-1)
-        output= tf.stack(tf.reduce_sum(output, axis=0))
+        output = self.model_layers(x)#x1,x2 두개 나옴.
+        output= tf.split(output, 2, axis=-1) #나누고 
+        output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
         return output
 
 class Reformer_Model(tf.keras.Model):

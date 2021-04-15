@@ -21,7 +21,7 @@ x = tf.random.uniform((4, 1024))
 y = tf.random.uniform(
     (4,1024), minval=1, maxval=2, dtype=tf.dtypes.int32, seed=None, name=None
 )
-
+'''
 optimizer = tf.keras.optimizers.Adam(learning_rate=6.25e-5)
 loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 metric = tf.keras.metrics.SparseCategoricalAccuracy('accuracy')
@@ -34,9 +34,9 @@ history = model_tf.fit(x, y,
                         epochs=2, 
                         batch_size=1,
                         )
-
+'''
 #x = tf.random.uniform((2, 8192))
 #model_tf.build(input_shape=(1,8192))
 #model_tf.summary()
-#y = model_tf(x)
+y = model_tf(x)
 
