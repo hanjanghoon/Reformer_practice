@@ -52,13 +52,17 @@ class Revnet_Layers(tf.keras.Model):
             h = layer(h, training=training)
         return h
     #dkw
-    def custom_backward(self, x, y, dy, training=True):
+    def custom_backward(self, y, dy, training=True):
+        layers_grad = []
+        layers_var= []
 
         for i in reversed(range(len(self.r_layers))):
             layer = self.r_layers[i]         
-            y, dy= layer.custom_backward(y, dy, training=training)
+            y, dy, grad, var= layer.custom_backward(y, dy, training=training)
+            layers_grad.append(grad)
+            layers_var.append(var)
 
-        return dy
+        return  y, dy , layers_grad, layers_var
 
 
 
@@ -75,53 +79,58 @@ class Revnet(tf.keras.Model):
 
         x1, x2 = tf.split(x, num_or_size_splits=2, axis=self.axis)
         
-        f_x2 = self.f(x2, training=training)
-        y1 = f_x2 + x1
-        g_y1 = self.g(y1, training=training)
-        y2 = g_y1 + x2
+        fx2 = self.f(x2, training=training)
+        y1 = fx2 + x1
+        gy1 = self.g(y1, training=training)
+        y2 = gy1 + x2
         
         output = tf.concat([y1, y2], axis=self.axis)
         return output
 
     def custom_backward(self, y, dy, training=True):
         dy1, dy2 = tf.split(dy, num_or_size_splits=2, axis=self.axis)
+        y1, y2 = tf.split(y, num_or_size_splits=2, axis=self.axis)
         del dy
-
-        with tf.GradientTape(persistent=True) as tape:
-            
-            y = tf.identity(y)
-            tape.watch(y)
-            y1, y2 = tf.split(y, num_or_size_splits=2, axis=self.axis)
-            del y
-
-            #gy1 역전파.
+        del y
+        
+        #gy1 역전파.
+        with tf.GradientTape() as tape_2:
+            tape_2.watch(y1)
             gy1 = self.g(y1, training=training)
-            #graident target, trinable variable ,output 요게 gradient임.
-            #gy1 gradient 계산.
-            grads_combined = tape.gradient(gy1, [y1] + self.g.trainable_variables, output_gradients=dy2)
-            
-            #activation.
-            x2 = y2 - gy1
-            del y2, gy1
-            
-            dx1 = dy1 + grads_combined[0]#y1.grad
-            del dy1
+        
+        #graident target, trinable variable ,output 요게 gradient임.
+        #gy1 gradient 계산.
+        grads_combined = tape_2.gradient(gy1,[y1] + self.g.trainable_variables,output_gradients=dy2)
+        #activation.
+        dg = grads_combined[1:]
 
-    
+
+        x2 = y2 - gy1
+        dx1 = dy1 + grads_combined[0]#y1.grad
+        
+        with tf.GradientTape() as tape_3:
+            tape_3.watch(x2)
             fx2 = self.f(x2, training=training)
-            x1 = y1 - fx2
-            del y1, fx2
-            #x2.grad 
-            grads_combined = tape.gradient(fx2, [x2] + self.f.trainable_variables, output_gradients=dx1)
-            #쪼개서 꺼내기.
-            dx2 = dy2 + grads_combined[0]
+        
+        
+        #x2.grad 
+        grads_combined = tape_3.gradient(fx2, [x2] + self.f.trainable_variables, output_gradients=dx1)
+        #쪼개서 꺼내기.
+        dx2 = dy2 + grads_combined[0]#여기서 버그남.
+        x1 = y1 - fx2
+        df = grads_combined[1:]
 
-            del tape
+        del tape_2
+        del tape_3
+        del y1, y2, gy1,fx2, dy1, dy2
 
+
+        grads = df + dg
+        var = self.f.trainable_variables + self.g.trainable_variables
         x = tf.concat([x1, x2], axis=self.axis)
         dx = tf.concat([dx1, dx2], axis=self.axis)
 
-        return x, dx
+        return x, dx ,grads, var
 
 
 class Feed_Forward(tf.keras.Model):
@@ -198,9 +207,9 @@ class LSHAttention(tf.keras.Model):
         _, undo_sort_index = get_index_with_sorting(arg_sort_index, bucket_index, dim=-1) #기존 index를 반대로 넣어서 돌아가는 index를 만듬. undo sort를 곱하면 원래 순서로 돌아감.
         
 
-        #stop graident = detach. #이런건 학습안함. 알고리즘이라.
-        scaled_bucket,sorted_scaled_bucket= tf.stop_gradient(scaled_bucket), tf.stop_gradient(sorted_scaled_bucket)
-        arg_sort_index,undo_sort_index= tf.stop_gradient(arg_sort_index), tf.stop_gradient(undo_sort_index)
+        #stop graident = detach. #이런건 학습안함. 알고리즘이라.=> 해야함 리니어 쪽이 학습안됨...
+        #scaled_bucket,sorted_scaled_bucket= tf.stop_gradient(scaled_bucket), tf.stop_gradient(sorted_scaled_bucket)
+        #arg_sort_index,undo_sort_index= tf.stop_gradient(arg_sort_index), tf.stop_gradient(undo_sort_index)
 
         
         
@@ -259,7 +268,7 @@ class LSHAttention(tf.keras.Model):
 
         
         #순서 다시 바까주기. undosort.
-        sorted_qkv, sorted_logits = tf.stop_gradient(sorted_qkv), tf.stop_gradient(sorted_logits)
+        #sorted_qkv, sorted_logits = tf.stop_gradient(sorted_qkv), tf.stop_gradient(sorted_logits)
         qkv, logits = self.undo_sorting(sorted_qkv, sorted_logits, arg_sort_index ,undo_sort_index)
 
         #요기가 multi-round hash임..
@@ -280,7 +289,7 @@ class MH_LSHAttention(tf.keras.Model):#multi-head + lsh_attention
         self.emb = emb
         self.headnum = heads
         self.attn = LSHAttention(bucket_size=bucket_size, num_hash = num_hash , causal=causal, **kwargs)
-        self.lk = Dense(emb, use_bias = False)
+        self.lk = Dense(emb, use_bias = False)#이거 문제임
         self.lv = Dense(emb, use_bias = False)
         self.lout = Dense(emb)
     
@@ -348,10 +357,7 @@ class Reformer(tf.keras.Model):
         self.model_layers = Revnet_Layers(layers)
 
     def call(self, x):
-        x = tf.concat([x, x], axis = -1)# x1, x2 하려고..
         output = self.model_layers(x)#x1,x2 두개 나옴.
-        output= tf.split(output, 2, axis=-1) #나누고 
-        output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
         return output
 
 class Reformer_Model(tf.keras.Model):
@@ -366,7 +372,86 @@ class Reformer_Model(tf.keras.Model):
         #axial positional embedding은 구현 못했습니다 ㅜㅜ
         #간이 임베딩 사용.
         inputs = self.token_emb(inputs) + self.pos_emb(tf.range(inputs.shape[1]))# 원래는 axial position 구현해서 더해줘야함.
+        inputs = tf.concat([inputs, inputs], axis = -1)# x1, x2 하려고..
         r_out = self.reformer(inputs) #batch, seq , dim (dim = embedding dim)
+        output= tf.split(r_out, 2, axis=-1) #나누고 
+        output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
         output= self.linear(r_out) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
         return output #batch, seq, vacab 
     
+    
+    def train_step(self,x,y,loss_object,loss_metric,accuracy,train_optimizer,training=True):
+      
+        loss, grads_all, vars_all, logits = self.custom_forward_backward(x,y,loss_object,training=training)
+
+        train_optimizer.apply_gradients(zip(grads_all, vars_all))
+        
+        
+        loss_metric(loss)
+        accuracy(targets, logits)
+
+        return loss#,loss_metric,accuracy
+    
+    
+    def custom_forward_backward(self,inputs,targets,loss_object,training=True):
+        total_grads = []
+        total_vars = []
+        def get_loss(real, pred, loss_object):
+            with tf.name_scope("loss_layer"):
+                mask = tf.cast(tf.math.logical_not(tf.math.equal(real, 0)),tf.float32)
+                loss_ = loss_object(real, pred) #loss : (batch , seq_len), real: (batch , seq_len), pred: (batch , seq_len, voc)
+                loss_ = loss_ * mask 
+                loss_ = tf.reduce_sum(loss_, axis=1)
+                avg_loss = loss_ / tf.reduce_sum(mask, axis=1) #batch 
+                
+                return avg_loss
+
+        with tf.GradientTape() as emb_tape:
+            inputs = self.token_emb(inputs) + self.pos_emb(tf.range(inputs.shape[1]))
+            inputs = tf.concat([inputs, inputs], axis = -1)# x1, x2 하려고..
+
+        r_out = self.reformer(inputs) #batch, seq , dim (dim = embedding dim)
+        #tf.print(reformer_outputs.shape)
+
+
+        with tf.GradientTape() as Dense_tape:
+            Dense_tape.watch(r_out)
+            output= tf.split(r_out, 2, axis=-1) #나누고 
+            output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
+            output= self.linear(r_out) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
+            
+        
+
+            cross_entropy = get_loss(targets, output ,loss_object)
+            loss = tf.reduce_mean(cross_entropy)
+        
+
+        dense_var = list(Dense_tape.watched_variables())
+        dense_grad = Dense_tape.gradient(loss, dense_var + [r_out])
+        dense_grad, r_out_grad = dense_grad[:-1], dense_grad[-1]
+
+
+        total_grads.extend(dense_grad)
+        total_vars.extend(Dense_tape.watched_variables())
+
+        
+        y, dy, grads_all, vars_all = self.reformer.model_layers.custom_backward(r_out,r_out_grad)
+
+        total_grads.extend(grads_all)
+        total_vars.extend(vars_all)
+        diff = tf.reduce_sum(y-inputs)
+       
+        del Dense_tape
+
+        emb_var = list(emb_tape.watched_variables())
+        emb_grad = emb_tape.gradient(inputs, emb_var,dy )
+
+        del emb_tape
+
+        total_grads.extend(emb_grad)
+        total_vars.extend(emb_var)
+        
+        #여기서 걸림.. 차원 문제인가..
+        total_grads = [tf.clip_by_norm(g, 0.5) for g in total_grads]
+
+        return loss, total_grads, total_vars, output

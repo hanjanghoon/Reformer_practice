@@ -38,5 +38,17 @@ history = model_tf.fit(x, y,
 #x = tf.random.uniform((2, 8192))
 #model_tf.build(input_shape=(1,8192))
 #model_tf.summary()
-y = model_tf(x)
+#y = model_tf(x)
+
+
+loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+accuracy_object = tf.keras.metrics.SparseCategoricalAccuracy()
+train_loss = tf.keras.metrics.Mean(name='train_loss')
+train_optimizer=(tf.keras.optimizers.Adam(learning_rate=1e-3))
+
+epochs=10
+for i in range(epochs):
+    loss = model_tf.train_step(x,y,loss_object,train_loss,accuracy_object,train_optimizer)
+    template = '에포크: {}, 손실: {}, 정확도: {}'
+    print (template.format(i,train_loss.result(),accuracy_object.result()*100))
 
