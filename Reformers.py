@@ -33,7 +33,8 @@ def reordering(val, idx, chunknum=None, flag=False):
     output=tf.gather(tf.reshape(val,[-1,val.shape[-1]]), idx+off)
     if flag:
         output=tf.reshape(output, (batch_size, chunknum, -1, output.shape[-1]))
-        
+
+
     return output
 
 
@@ -120,7 +121,7 @@ class Revnet(tf.keras.Model):
         x = tf.concat([x1, x2], axis=self.axis)
         dx = tf.concat([dx1, dx2], axis=self.axis)
 
-        return x, dx#, grads, vars_
+        return x, dx
 
 
 class Feed_Forward(tf.keras.Model):
