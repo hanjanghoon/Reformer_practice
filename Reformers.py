@@ -358,13 +358,13 @@ class Reformer_Model(tf.keras.Model):
         self.token_emb = Embedding(vocab_size, emb_size)
         self.pos_emb = Embedding(max_seq_len, emb_size)
         self.reformer = Reformer(emb_size, depth, max_seq_len, heads = heads, bucket_size = bucket_size, num_hash = num_hash, ff_chunks = ff_chunks,  causal = causal)
-        self.to_logits = Dense(vocab_size)
+        self.linear = Dense(vocab_size)
 
     def call(self, inputs):
         #axial positional embedding은 구현 못했습니다 ㅜㅜ
         #간이 임베딩 사용.
         inputs = self.token_emb(inputs) + self.pos_emb(tf.range(inputs.shape[1]))
         r_out = self.reformer(inputs) #batch, seq , dim
-        output= self.to_logits(r_out)
+        output= self.linear(r_out)
         return output #batch, seq, vacab 
     
