@@ -11,26 +11,14 @@ import math
 
 def get_index_with_sorting(val, idx, dim=-1):
 
-    idx = tf.broadcast_to(idx, val.shape)
-    
-    off=tf.range(val.shape[0])*val.shape[1]
-    off=tf.reshape(off,[-1,1])
-    off=tf.broadcast_to(off, val.shape)
-
-    
+    idx = tf.broadcast_to(idx, val.shape) #4 4096 확장
     #차원 맞춰주기!
-    return tf.sort(val, axis=dim), tf.gather(tf.reshape(idx,[-1]), tf.argsort(val, axis=dim)+off, axis=dim)
+    return tf.sort(val, axis=dim), tf.gather(tf.reshape(idx,[-1]), tf.argsort(val, axis=dim), axis=dim) #기존값에 offset더해줌.
 
 
 def reordering(val, idx, chunknum=None, flag=False):
     batch_size= val.shape[0]
-    seq_length = val.shape[1]
-
-    off=tf.range(idx.shape[0])*seq_length
-    off=tf.reshape(off,[-1,1])
-    off=tf.broadcast_to(off, idx.shape)
-    
-    output=tf.gather(tf.reshape(val,[-1,val.shape[-1]]), idx+off)
+    output=tf.gather(tf.reshape(val,[-1,val.shape[-1]]), idx)#+off)
     if flag:
         output=tf.reshape(output, (batch_size, chunknum, -1, output.shape[-1]))
 
@@ -94,13 +82,13 @@ class Revnet(tf.keras.Model):
         del y
         
         #gy1 역전파.
-        with tf.GradientTape() as tape_2:
-            tape_2.watch(y1)
+        with tf.GradientTape() as tape_g:
+            tape_g.watch(y1)
             gy1 = self.g(y1, training=training)
         
         #graident target, trinable variable ,output 요게 gradient임.
         #gy1 gradient 계산.
-        grads_combined = tape_2.gradient(gy1,[y1] + self.g.trainable_variables,output_gradients=dy2)
+        grads_combined = tape_g.gradient(gy1,[y1] + self.g.trainable_variables,output_gradients=dy2)
         #activation.
         dg = grads_combined[1:]
 
@@ -108,20 +96,20 @@ class Revnet(tf.keras.Model):
         x2 = y2 - gy1
         dx1 = dy1 + grads_combined[0]#y1.grad
         
-        with tf.GradientTape() as tape_3:
-            tape_3.watch(x2)
+        with tf.GradientTape() as tape_f:
+            tape_f.watch(x2)
             fx2 = self.f(x2, training=training)
         
         
         #x2.grad 
-        grads_combined = tape_3.gradient(fx2, [x2] + self.f.trainable_variables, output_gradients=dx1)
+        grads_combined = tape_f.gradient(fx2, [x2] + self.f.trainable_variables, output_gradients=dx1)
         #쪼개서 꺼내기.
         dx2 = dy2 + grads_combined[0]#여기서 버그남.
         x1 = y1 - fx2
         df = grads_combined[1:]
 
-        del tape_2
-        del tape_3
+        del tape_g
+        del tape_f
         del y1, y2, gy1,fx2, dy1, dy2
 
 
@@ -171,7 +159,7 @@ class LSHAttention(tf.keras.Model):
         bucket_nums = seq_length // self.bucket_size #이거 논문에 나온거임. bucket_size= seq/bucket_num
         chunknum= bucket_nums * self.num_hash
         r_size = bucket_nums//2
-        qk = self.dropout(qk)
+        qk = self.dropout(qk)#TensorShape([4, 1024, 64])
         #hash 만큼 해서 돌아.. LSH.. #batch , (hash*seq_len) 값은 bucket 값. 이걸로 sorting.
         # LSH 
         #맵핑 키 모양 잡자.
@@ -197,12 +185,12 @@ class LSHAttention(tf.keras.Model):
         buckets = tf.reshape(buckets + hash_off, (batch_size, -1,))
 
         # sorting 할거임. 위치정보 반영해서 정렬 seq_length * hashes 여기에 bucket 인덱스 들어갈거야.. + 원래 위치 인덱스랑.
-        bucket_index = tf.expand_dims(tf.range(self.num_hash * seq_length), axis=0)#sorting 하고 되돌릴 인덱스 저장하기 위해서 인덱스 만듬. # unsqueeze대신 expand dim씀.
+        bucket_index = tf.expand_dims(tf.range(self.num_hash * seq_length), axis=0)#sorting 하고 되돌릴 인덱스 저장하기 위해서 인덱스 만듬. # unsqueeze대신 expand dim씀.1,4096
         #참고로 원래 버켓 값보다 많이 큼.
-        scaled_bucket = seq_length * buckets + tf.cast((bucket_index % seq_length), tf.int64)#bucket값이 겹치지 않게 해야함. 그리고 bucket 값 다음으로 seq index 값도 반영해서 정렬해아하기 때문에 offset 이렇게 만듬
+        scaled_bucket = seq_length * buckets + tf.cast((bucket_index % seq_length), tf.int64)#bucket값이 겹치지 않게 해야함. 그리고 bucket 값 다음으로 seq index 값도 반영해서 정렬해아하기 때문에 offset 이렇게 만듬 4, 4096
         
         #sorting 해주기.
-        #sort key val은 기본적으로 sort와 그전 index를 가져다줌.
+        #sort key val은 기본적으로 sort와 그전 index를 가져다줌. 
         sorted_scaled_bucket, arg_sort_index = get_index_with_sorting(scaled_bucket, bucket_index, dim=-1)#순서대로 버켓 넘 순으로 정렬된것과, argsort 인덱스. 처음이 원래 순서대로임.. 왜냐하면 bucket값이 0인 애들이 초반에 그 위치에 있기 때문.
         _, undo_sort_index = get_index_with_sorting(arg_sort_index, bucket_index, dim=-1) #기존 index를 반대로 넣어서 돌아가는 index를 만듬. undo sort를 곱하면 원래 순서로 돌아감.
         
