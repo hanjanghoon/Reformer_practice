@@ -168,7 +168,7 @@ class LSHAttention(tf.keras.Model):
         # qk vector 태워서 보내려고 차원 맞추는거임.
         R = tf.broadcast_to(tf.random.normal(r_shape), (batch_size, dim, self.num_hash , r_size))
         
-        #torch에도 있음. 태워서 보낸다.
+        #torch에도 있음. 태워서 보낸다.##
         xR = tf.einsum('btf,bfhi->bhti', qk, R)
 
         #공식.
@@ -194,7 +194,7 @@ class LSHAttention(tf.keras.Model):
         sorted_scaled_bucket, arg_sort_index = get_index_with_sorting(scaled_bucket, bucket_index, dim=-1)#순서대로 버켓 넘 순으로 정렬된것과, argsort 인덱스. 처음이 원래 순서대로임.. 왜냐하면 bucket값이 0인 애들이 초반에 그 위치에 있기 때문.
         _, undo_sort_index = get_index_with_sorting(arg_sort_index, bucket_index, dim=-1) #기존 index를 반대로 넣어서 돌아가는 index를 만듬. undo sort를 곱하면 원래 순서로 돌아감.
         
-
+        #왜.?
         #stop graident = detach. #이런건 학습안함. 알고리즘이라.=> 해야함 리니어 쪽이 학습안됨...
         #scaled_bucket,sorted_scaled_bucket= tf.stop_gradient(scaled_bucket), tf.stop_gradient(sorted_scaled_bucket)
         #arg_sort_index,undo_sort_index= tf.stop_gradient(arg_sort_index), tf.stop_gradient(undo_sort_index)
