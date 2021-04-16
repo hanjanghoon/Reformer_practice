@@ -15,7 +15,7 @@ model_tf = Reformer_Model(
 
 )
 
-# 모듈 테스트 용 코드입니다.. 직접 인코더 디코더 모델을 구현하지 못했습니다ㅜㅜ
+# 모듈 테스트 용 코드입니다.. 랜덤 값이긴 하지만 정상 동작합니다.
 
 x = tf.random.uniform((4, 1024))
 y = tf.random.uniform(

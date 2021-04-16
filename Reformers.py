@@ -47,8 +47,8 @@ class Revnet_Layers(tf.keras.Model):
         for i in reversed(range(len(self.r_layers))):
             layer = self.r_layers[i]         
             y, dy, grad, var= layer.custom_backward(y, dy, training=training)
-            layers_grad.append(grad)
-            layers_var.append(var)
+            layers_grad.extend(grad)
+            layers_var.extend(var)
 
         return  y, dy , layers_grad, layers_var
 
@@ -66,7 +66,7 @@ class Revnet(tf.keras.Model):
     def call(self, x, training=True, concat=True):
 
         x1, x2 = tf.split(x, num_or_size_splits=2, axis=self.axis)
-        
+        #봐라 결국 의미있는 값은 
         fx2 = self.f(x2, training=training)
         y1 = fx2 + x1
         gy1 = self.g(y1, training=training)
@@ -362,9 +362,9 @@ class Reformer_Model(tf.keras.Model):
         inputs = self.token_emb(inputs) + self.pos_emb(tf.range(inputs.shape[1]))# 원래는 axial position 구현해서 더해줘야함.
         inputs = tf.concat([inputs, inputs], axis = -1)# x1, x2 하려고..
         r_out = self.reformer(inputs) #batch, seq , dim (dim = embedding dim)
-        output= tf.split(r_out, 2, axis=-1) #나누고 
-        output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
-        output= self.linear(r_out) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
+        r_out_y2= tf.split(r_out, 2, axis=-1)[1] #나누고 
+        #output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
+        output= self.linear(r_out_y2) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
         return output #batch, seq, vacab 
     
     
@@ -376,7 +376,7 @@ class Reformer_Model(tf.keras.Model):
         
         
         loss_metric(loss)
-        accuracy(targets, logits)
+        accuracy(y, logits)
 
         return loss#,loss_metric,accuracy
     
@@ -399,14 +399,13 @@ class Reformer_Model(tf.keras.Model):
             inputs = tf.concat([inputs, inputs], axis = -1)# x1, x2 하려고..
 
         r_out = self.reformer(inputs) #batch, seq , dim (dim = embedding dim)
-        #tf.print(reformer_outputs.shape)
+        
 
 
         with tf.GradientTape() as Dense_tape:
             Dense_tape.watch(r_out)
-            output= tf.split(r_out, 2, axis=-1) #나누고 
-            output= tf.stack(tf.reduce_sum(output, axis=0)) #합치기. batch, seq, emb_dim
-            output= self.linear(r_out) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
+            r_out_y2= tf.split(r_out, 2, axis=-1)[1] #나누고 
+            output= self.linear(r_out_y2) #vocab 에 맞게 나옴. 생성 모델같은거 할때.
             
         
 
@@ -425,10 +424,13 @@ class Reformer_Model(tf.keras.Model):
         
         y, dy, grads_all, vars_all = self.reformer.model_layers.custom_backward(r_out,r_out_grad)
 
+        
         total_grads.extend(grads_all)
         total_vars.extend(vars_all)
         diff = tf.reduce_sum(y-inputs)
-       
+        
+        
+    
         del Dense_tape
 
         emb_var = list(emb_tape.watched_variables())
@@ -439,7 +441,7 @@ class Reformer_Model(tf.keras.Model):
         total_grads.extend(emb_grad)
         total_vars.extend(emb_var)
         
-        #여기서 걸림.. 차원 문제인가..
+        #여기서 걸림.. 차원 문제인가..append 왜했니...
         total_grads = [tf.clip_by_norm(g, 0.5) for g in total_grads]
 
         return loss, total_grads, total_vars, output
